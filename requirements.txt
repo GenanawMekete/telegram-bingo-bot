@@ -9,7 +9,7 @@ SQLAlchemy==2.0.23
 gunicorn==21.2.0
 eventlet==0.33.3
 
-# Database (use psycopg for Python 3.13)
+# Database - use psycopg for PostgreSQL
 psycopg2-binary==2.9.9
 
 # Telegram bot
@@ -19,7 +19,6 @@ python-telegram-bot==20.7
 python-dotenv==1.0.0
 PyJWT==2.8.0
 requests==2.31.0
-greenlet==3.0.3  # Required for eventlet in Python 3.13
 
-# Development only (not needed in production)
-# - (removed pysqlite3 if using PostgreSQL)
+# Python 3.11 compatible greenlet
+greenlet==2.0.2
