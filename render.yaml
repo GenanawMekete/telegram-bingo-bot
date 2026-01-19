@@ -1,5 +1,4 @@
 services:
-  # Backend API Service
   - type: web
     name: bingo-backend
     env: python
@@ -8,11 +7,11 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-    startCommand: gunicorn run:app --worker-class gevent --bind 0.0.0.0:$PORT --timeout 120 --keep-alive 5
+    startCommand: gunicorn run:app --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT --timeout 120
     healthCheckPath: /api/health
     envVars:
       - key: DATABASE_URL
-        sync: false  # Will be set to your PostgreSQL URL
+        sync: false
       - key: RENDER
         value: true
       - key: SECRET_KEY
@@ -20,13 +19,8 @@ services:
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: WEBAPP_URL
-        value: https://your-bingo-game.netlify.app  # Your Netlify URL
-      - key: CARD_PRICE
-        value: "5.00"
-      - key: PYTHON_VERSION
-        value: "3.11.0"
+        value: https://your-bingo.netlify.app
 
-  # Telegram Bot Service
   - type: web
     name: bingo-bot
     env: python
@@ -42,7 +36,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: WEBAPP_URL
-        value: https://your-bingo-game.netlify.app
+        value: https://your-bingo.netlify.app
       - key: BACKEND_URL
         sync: false
 
