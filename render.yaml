@@ -1,0 +1,38 @@
+services:
+  # Telegram Bot Service
+  - type: web
+    name: telegram-bingo-bot
+    env: python
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      python database/init_db.py
+    startCommand: python bot/bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite:///bingo.db
+      - key: WEBAPP_URL
+        value: https://your-webapp.vercel.app
+      - key: BACKEND_URL
+        value: https://your-backend.vercel.app
+      - key: SECRET_KEY
+        generateValue: true
+  
+  # Backend API Service (if not using Vercel)
+  - type: web
+    name: bingo-backend
+    env: python
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      python database/init_db.py
+    startCommand: |
+      cd backend && python app.py
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:///../bingo.db
+      - key: SECRET_KEY
+        generateValue: true
+    healthCheckPath: /api/health
