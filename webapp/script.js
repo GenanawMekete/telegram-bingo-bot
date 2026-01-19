@@ -1,238 +1,552 @@
+// Configuration
+const CONFIG = {
+    // Development configuration
+    development: {
+        API_URL: 'http://localhost:5000/api',
+        SOCKET_URL: 'http://localhost:5000',
+        SOCKET_PATH: '/socket.io',
+        DEBUG: true,
+        CARD_PRICE: 5.00
+    },
+    // Production configuration (for Netlify + Render)
+    production: {
+        API_URL: 'https://your-backend.onrender.com/api',  // Replace with your Render URL
+        SOCKET_URL: 'https://your-backend.onrender.com',   // Replace with your Render URL
+        SOCKET_PATH: '/socket.io',
+        DEBUG: false,
+        CARD_PRICE: 5.00
+    }
+};
+
+// Auto-detect environment
+const isProduction = window.location.hostname !== 'localhost' && 
+                     window.location.hostname !== '127.0.0.1';
+const config = isProduction ? CONFIG.production : CONFIG.development;
+
 // Game State
-let gameState = {
-    userId: null,
-    userName: null,
-    userBalance: 0,
+const gameState = {
+    user: null,
+    token: null,
     selectedCard: null,
-    gameId: null,
-    roomCode: 'public',
+    game: null,
+    roomCode: null,
     socket: null,
-    currentPage: 1,
-    totalPages: 1,
     drawnNumbers: [],
     players: [],
-    gameStatus: 'waiting'
+    messages: [],
+    currentPage: 1,
+    totalPages: 1,
+    isLoading: false,
+    reconnectAttempts: 0,
+    maxReconnectAttempts: 5
 };
 
 // DOM Elements
 const elements = {
+    // User info
     userName: document.getElementById('userName'),
     userBalance: document.getElementById('userBalance'),
+    
+    // Game status
     playerCount: document.getElementById('playerCount'),
     prizePool: document.getElementById('prizePool'),
     drawnCount: document.getElementById('drawnCount'),
     roomCode: document.getElementById('roomCode'),
+    gameStatus: document.getElementById('gameStatus'),
+    
+    // Card selection
     cardsGrid: document.getElementById('cardsGrid'),
     currentPage: document.getElementById('currentPage'),
     totalPages: document.getElementById('totalPages'),
     prevPage: document.getElementById('prevPage'),
     nextPage: document.getElementById('nextPage'),
     cardSelection: document.getElementById('cardSelection'),
+    
+    // Bingo card
     bingoCardSection: document.getElementById('bingoCardSection'),
     selectedCardNumber: document.getElementById('selectedCardNumber'),
     bingoGrid: document.getElementById('bingoGrid'),
+    
+    // Drawn numbers
     drawnNumbers: document.getElementById('drawnNumbers'),
+    
+    // Chat
     gameLog: document.getElementById('gameLog'),
     chatInput: document.getElementById('chatInput'),
     sendChatBtn: document.getElementById('sendChatBtn'),
+    
+    // Buttons
     markNumberBtn: document.getElementById('markNumberBtn'),
     claimBingoBtn: document.getElementById('claimBingoBtn'),
     leaveGameBtn: document.getElementById('leaveGameBtn'),
     startGameBtn: document.getElementById('startGameBtn'),
     inviteFriendsBtn: document.getElementById('inviteFriendsBtn'),
     refreshBtn: document.getElementById('refreshBtn'),
+    
+    // Modals
     winnerModal: document.getElementById('winnerModal'),
     prizeAmount: document.getElementById('prizeAmount'),
-    collectPrizeBtn: document.getElementById('collectPrizeBtn')
+    collectPrizeBtn: document.getElementById('collectPrizeBtn'),
+    loadingModal: document.getElementById('loadingModal'),
+    errorModal: document.getElementById('errorModal'),
+    errorMessage: document.getElementById('errorMessage')
 };
 
 // Initialize WebApp
-async function initWebApp() {
-    // Get parameters from URL
-    const urlParams = new URLSearchParams(window.location.search);
-    gameState.userId = urlParams.get('user_id');
-    
-    if (!gameState.userId) {
-        showError('User ID is required');
-        return;
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        showLoading('Initializing game...');
+        
+        // Get parameters from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const telegramId = urlParams.get('telegram_id');
+        const phoneNumber = urlParams.get('phone');
+        const authToken = urlParams.get('auth');
+        const roomCode = urlParams.get('room');
+        
+        if (roomCode) {
+            gameState.roomCode = roomCode;
+        }
+        
+        // Check if we have authentication data
+        if (telegramId || phoneNumber || authToken) {
+            await authenticateUser(telegramId, phoneNumber, authToken);
+        } else {
+            // Show login/registration screen
+            showLoginScreen();
+        }
+        
+        // Setup event listeners
+        setupEventListeners();
+        
+        hideLoading();
+        
+    } catch (error) {
+        console.error('Initialization error:', error);
+        showError('Failed to initialize game. Please refresh the page.');
     }
-    
-    // Initialize WebSocket connection
-    initWebSocket();
-    
-    // Load user info
-    await loadUserInfo();
-    
-    // Load available cards
-    await loadCards();
-    
-    // Setup event listeners
-    setupEventListeners();
-    
-    // Log game start
-    addLogMessage('system', 'Welcome to Telegram Bingo! Game loaded successfully.');
+});
+
+// Authentication
+async function authenticateUser(telegramId, phoneNumber, authToken) {
+    try {
+        if (authToken) {
+            // Use existing token
+            gameState.token = authToken;
+            await loadUserProfile();
+        } else if (telegramId) {
+            // Login with Telegram ID
+            const response = await fetch(`${config.API_URL}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ telegram_id: telegramId })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                gameState.token = data.token;
+                gameState.user = data.user;
+                localStorage.setItem('bingo_token', data.token);
+                await initializeGame();
+            } else {
+                throw new Error(data.error || 'Authentication failed');
+            }
+        } else if (phoneNumber) {
+            // TODO: Handle phone verification
+            showPhoneVerification(phoneNumber);
+        }
+    } catch (error) {
+        console.error('Authentication error:', error);
+        showError('Authentication failed. Please try again.');
+    }
 }
 
-// Initialize WebSocket connection
+async function loadUserProfile() {
+    try {
+        const response = await fetch(`${config.API_URL}/user/profile`, {
+            headers: {
+                'Authorization': `Bearer ${gameState.token}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            gameState.user = data;
+            updateUserUI();
+            await initializeGame();
+        } else {
+            throw new Error(data.error || 'Failed to load profile');
+        }
+    } catch (error) {
+        console.error('Profile load error:', error);
+        showError('Failed to load user profile.');
+    }
+}
+
+// Game Initialization
+async function initializeGame() {
+    try {
+        // Initialize WebSocket connection
+        initWebSocket();
+        
+        // Load available games or join existing room
+        if (gameState.roomCode) {
+            await joinRoom(gameState.roomCode);
+        } else {
+            await loadAvailableGames();
+        }
+        
+        // Update UI
+        updateGameUI();
+        
+    } catch (error) {
+        console.error('Game initialization error:', error);
+        showError('Failed to initialize game.');
+    }
+}
+
+// WebSocket Connection
 function initWebSocket() {
-    const backendUrl = 'http://localhost:5000'; // Replace with your backend URL
-    gameState.socket = io(backendUrl);
+    if (gameState.socket && gameState.socket.connected) {
+        gameState.socket.disconnect();
+    }
     
+    gameState.socket = io(config.SOCKET_URL, {
+        path: config.SOCKET_PATH,
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000,
+        timeout: 20000,
+        auth: {
+            token: gameState.token
+        }
+    });
+    
+    // Socket event handlers
     gameState.socket.on('connect', () => {
         console.log('Connected to game server');
-        addLogMessage('system', 'Connected to game server');
+        gameState.reconnectAttempts = 0;
+        addSystemMessage('Connected to game server');
+        
+        if (gameState.roomCode) {
+            gameState.socket.emit('join', {
+                room_code: gameState.roomCode,
+                user_id: gameState.user.id
+            });
+        }
     });
     
     gameState.socket.on('connected', (data) => {
-        console.log('Server connection confirmed:', data);
+        console.log('Socket connection confirmed:', data);
     });
     
-    gameState.socket.on('number_drawn', (data) => {
-        handleNumberDrawn(data);
+    gameState.socket.on('joined', (data) => {
+        console.log('Joined room:', data);
+        addSystemMessage(`Joined room ${data.room}`);
     });
     
     gameState.socket.on('player_joined', (data) => {
         handlePlayerJoined(data);
     });
     
-    gameState.socket.on('bingo', (data) => {
-        handleBingoWin(data);
+    gameState.socket.on('game_started', (data) => {
+        handleGameStarted(data);
     });
     
-    gameState.socket.on('message', (data) => {
-        addLogMessage('system', data.message);
+    gameState.socket.on('number_drawn', (data) => {
+        handleNumberDrawn(data);
+    });
+    
+    gameState.socket.on('bingo', (data) => {
+        handleBingo(data);
+    });
+    
+    gameState.socket.on('chat_message', (data) => {
+        addChatMessage(data.username, data.message, data.timestamp);
+    });
+    
+    gameState.socket.on('disconnect', (reason) => {
+        console.log('Disconnected:', reason);
+        addSystemMessage('Disconnected from server. Attempting to reconnect...');
+        
+        if (reason === 'io server disconnect') {
+            // Server forced disconnect, try to reconnect
+            gameState.socket.connect();
+        }
+    });
+    
+    gameState.socket.on('connect_error', (error) => {
+        console.error('Connection error:', error);
+        gameState.reconnectAttempts++;
+        
+        if (gameState.reconnectAttempts >= gameState.maxReconnectAttempts) {
+            showError('Cannot connect to game server. Please refresh the page.');
+        }
     });
 }
 
-// Load user information
-async function loadUserInfo() {
+// Game Management
+async function loadAvailableGames() {
     try {
-        const response = await fetch(`${getBackendUrl()}/api/user/${gameState.userId}`);
-        if (!response.ok) throw new Error('Failed to load user info');
+        showLoading('Loading available games...');
         
-        const user = await response.json();
-        
-        gameState.userName = user.username || `Player_${gameState.userId}`;
-        gameState.userBalance = user.balance;
-        
-        // Update UI
-        elements.userName.textContent = gameState.userName;
-        elements.userBalance.textContent = `Balance: $${gameState.userBalance.toFixed(2)}`;
-        
-    } catch (error) {
-        console.error('Error loading user info:', error);
-        showError('Failed to load user information');
-    }
-}
-
-// Load available cards
-async function loadCards(page = 1) {
-    try {
-        elements.cardsGrid.innerHTML = '<div class="loading">Loading cards...</div>';
-        
-        const response = await fetch(`${getBackendUrl()}/api/cards?page=${page}`);
-        if (!response.ok) throw new Error('Failed to load cards');
+        const response = await fetch(`${config.API_URL}/games?status=waiting`, {
+            headers: {
+                'Authorization': `Bearer ${gameState.token}`
+            }
+        });
         
         const data = await response.json();
         
-        // Update pagination
-        gameState.currentPage = data.page;
-        gameState.totalPages = data.pages;
-        
-        elements.currentPage.textContent = data.page;
-        elements.totalPages.textContent = data.pages;
-        
-        // Display cards
-        elements.cardsGrid.innerHTML = '';
-        data.cards.forEach(card => {
-            const cardElement = createCardElement(card);
-            elements.cardsGrid.appendChild(cardElement);
-        });
-        
-    } catch (error) {
-        console.error('Error loading cards:', error);
-        elements.cardsGrid.innerHTML = '<div class="error">Failed to load cards. Please try again.</div>';
-    }
-}
-
-// Create card element
-function createCardElement(card) {
-    const div = document.createElement('div');
-    div.className = 'card-item';
-    div.innerHTML = `
-        <div class="card-number">#${card.card_number}</div>
-        <div class="card-price">$${getCardPrice()}</div>
-    `;
-    
-    div.addEventListener('click', () => selectCard(card));
-    
-    return div;
-}
-
-// Select a bingo card
-async function selectCard(card) {
-    try {
-        // Deselect all cards
-        document.querySelectorAll('.card-item').forEach(el => {
-            el.classList.remove('selected');
-        });
-        
-        // Select clicked card
-        event.target.closest('.card-item').classList.add('selected');
-        
-        // Make API call to reserve card
-        const response = await fetch(`${getBackendUrl()}/api/cards/select`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                telegram_id: gameState.userId,
-                card_number: card.card_number
-            })
-        });
-        
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || 'Failed to select card');
+        if (response.ok) {
+            if (data.games.length > 0) {
+                // Show game list
+                displayGameList(data.games);
+            } else {
+                // Show card selection for new game
+                await loadCards();
+            }
+        } else {
+            throw new Error(data.error || 'Failed to load games');
         }
         
-        const result = await response.json();
-        
-        // Update game state
-        gameState.selectedCard = card;
-        gameState.gameId = result.game_id;
-        gameState.roomCode = result.room_code;
-        gameState.userBalance = result.balance;
-        
-        // Update UI
-        elements.userBalance.textContent = `Balance: $${gameState.userBalance.toFixed(2)}`;
-        elements.roomCode.textContent = result.room_code;
-        elements.selectedCardNumber.textContent = `#${card.card_number}`;
-        
-        // Show bingo card section
-        elements.cardSelection.style.display = 'none';
-        elements.bingoCardSection.style.display = 'block';
-        
-        // Render bingo card
-        renderBingoCard(card.card_data);
-        
-        // Join game room via WebSocket
-        gameState.socket.emit('join', {
-            room_code: result.room_code,
-            user_id: gameState.userId
-        });
-        
-        addLogMessage('system', `You selected card #${card.card_number}. Waiting for game to start...`);
-        
+        hideLoading();
     } catch (error) {
-        console.error('Error selecting card:', error);
-        showError(error.message);
+        console.error('Load games error:', error);
+        hideLoading();
+        showError('Failed to load games.');
     }
 }
 
-// Render bingo card
+async function joinRoom(roomCode) {
+    try {
+        showLoading(`Joining room ${roomCode}...`);
+        
+        // First, check if room exists and get game info
+        const response = await fetch(`${config.API_URL}/games?status=all`, {
+            headers: {
+                'Authorization': `Bearer ${gameState.token}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            const game = data.games.find(g => g.room_code === roomCode);
+            
+            if (game) {
+                if (game.status === 'finished') {
+                    showError('This game has already finished.');
+                    return;
+                }
+                
+                gameState.game = game;
+                gameState.roomCode = roomCode;
+                
+                // Join via WebSocket
+                gameState.socket.emit('join', {
+                    room_code: roomCode,
+                    user_id: gameState.user.id
+                });
+                
+                // Check if user already has a card in this game
+                await checkExistingCard(game.id);
+                
+                updateGameUI();
+            } else {
+                showError('Room not found.');
+            }
+        } else {
+            throw new Error(data.error || 'Failed to join room');
+        }
+        
+        hideLoading();
+    } catch (error) {
+        console.error('Join room error:', error);
+        hideLoading();
+        showError('Failed to join room.');
+    }
+}
+
+async function checkExistingCard(gameId) {
+    try {
+        const response = await fetch(`${config.API_URL}/cards?game_id=${gameId}`, {
+            headers: {
+                'Authorization': `Bearer ${gameState.token}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.already_joined && data.card) {
+            // User already has a card in this game
+            gameState.selectedCard = data.card;
+            showBingoCard();
+        } else {
+            // Need to select a card
+            await loadCards(gameId);
+        }
+    } catch (error) {
+        console.error('Check card error:', error);
+    }
+}
+
+async function loadCards(gameId = null, page = 1) {
+    try {
+        showLoading('Loading available cards...');
+        
+        let url = `${config.API_URL}/cards?page=${page}&per_page=20`;
+        if (gameId) {
+            url += `&game_id=${gameId}`;
+        }
+        
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${gameState.token}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            if (data.already_joined && data.card) {
+                // Already have a card
+                gameState.selectedCard = data.card;
+                showBingoCard();
+            } else {
+                // Show card selection
+                displayCards(data.cards, data.page, data.pages);
+            }
+        } else {
+            throw new Error(data.error || 'Failed to load cards');
+        }
+        
+        hideLoading();
+    } catch (error) {
+        console.error('Load cards error:', error);
+        hideLoading();
+        showError('Failed to load cards.');
+    }
+}
+
+// Card Selection
+function displayCards(cards, currentPage, totalPages) {
+    elements.cardsGrid.innerHTML = '';
+    
+    cards.forEach(card => {
+        const cardElement = document.createElement('div');
+        cardElement.className = 'card-item';
+        cardElement.innerHTML = `
+            <div class="card-number">#${card.card_number}</div>
+            <div class="card-price">$${config.CARD_PRICE.toFixed(2)}</div>
+            <div class="card-balance">Balance: $${gameState.user.balance.toFixed(2)}</div>
+        `;
+        
+        cardElement.addEventListener('click', () => selectCard(card));
+        
+        elements.cardsGrid.appendChild(cardElement);
+    });
+    
+    elements.currentPage.textContent = currentPage;
+    elements.totalPages.textContent = totalPages;
+    gameState.currentPage = currentPage;
+    gameState.totalPages = totalPages;
+    
+    elements.cardSelection.style.display = 'block';
+    elements.bingoCardSection.style.display = 'none';
+}
+
+async function selectCard(card) {
+    try {
+        showLoading('Selecting card...');
+        
+        const payload = {
+            card_number: card.card_number
+        };
+        
+        if (gameState.game) {
+            payload.game_id = gameState.game.id;
+        } else if (gameState.roomCode) {
+            payload.room_code = gameState.roomCode;
+        }
+        
+        const response = await fetch(`${config.API_URL}/cards/select`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${gameState.token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            gameState.selectedCard = {
+                number: card.card_number,
+                data: card.card_data
+            };
+            gameState.game = data.game;
+            gameState.roomCode = data.game.room_code;
+            gameState.user.balance = data.balance;
+            
+            // Join room via WebSocket
+            gameState.socket.emit('join', {
+                room_code: data.game.room_code,
+                user_id: gameState.user.id
+            });
+            
+            showBingoCard();
+            updateUserUI();
+            
+            addSystemMessage(`Selected card #${card.card_number} and joined room ${data.game.room_code}`);
+        } else {
+            throw new Error(data.error || 'Failed to select card');
+        }
+        
+        hideLoading();
+    } catch (error) {
+        console.error('Select card error:', error);
+        hideLoading();
+        showError(error.message || 'Failed to select card.');
+    }
+}
+
+function showBingoCard() {
+    if (!gameState.selectedCard) return;
+    
+    elements.selectedCardNumber.textContent = `#${gameState.selectedCard.number}`;
+    
+    // Render bingo card
+    renderBingoCard(gameState.selectedCard.data);
+    
+    elements.cardSelection.style.display = 'none';
+    elements.bingoCardSection.style.display = 'block';
+    
+    // Update game UI
+    if (gameState.game) {
+        elements.roomCode.textContent = gameState.game.room_code;
+        elements.playerCount.textContent = gameState.game.player_count;
+        elements.prizePool.textContent = gameState.game.prize_pool.toFixed(2);
+    }
+}
+
 function renderBingoCard(cardData) {
     elements.bingoGrid.innerHTML = '';
     
+    // Create BINGO header
+    const letters = ['B', 'I', 'N', 'G', 'O'];
+    letters.forEach(letter => {
+        const headerCell = document.createElement('div');
+        headerCell.className = 'bingo-header-cell';
+        headerCell.textContent = letter;
+        elements.bingoGrid.appendChild(headerCell);
+    });
+    
+    // Create card cells
     for (let row = 0; row < 5; row++) {
         for (let col = 0; col < 5; col++) {
             const cell = document.createElement('div');
@@ -240,58 +554,208 @@ function renderBingoCard(cardData) {
             cell.dataset.row = row;
             cell.dataset.col = col;
             
-            const number = cardData[row][col];
-            cell.textContent = number;
+            const value = cardData[row][col];
+            cell.textContent = value;
             
-            if (number === 'FREE') {
+            if (value === 'FREE') {
                 cell.classList.add('free');
-                cell.textContent = 'FREE';
+                cell.classList.add('marked');
             }
             
-            cell.addEventListener('click', () => markNumber(number));
+            // Check if this number is marked
+            if (gameState.selectedCard.marked_numbers && 
+                gameState.selectedCard.marked_numbers.includes(value)) {
+                cell.classList.add('marked');
+            }
+            
+            cell.addEventListener('click', () => markCell(cell, value));
             
             elements.bingoGrid.appendChild(cell);
         }
     }
 }
 
-// Mark number on card
-function markNumber(number) {
-    if (number === 'FREE') return;
+// Game Actions
+async function markCell(cell, number) {
+    if (number === 'FREE' || cell.classList.contains('marked')) return;
     
-    const cells = elements.bingoGrid.querySelectorAll('.bingo-cell');
-    cells.forEach(cell => {
-        if (cell.textContent === number.toString()) {
+    if (!gameState.game || gameState.game.status !== 'active') {
+        showError('Game is not active yet.');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${config.API_URL}/games/${gameState.game.id}/mark`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${gameState.token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ number: number })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
             cell.classList.add('marked');
+            
+            if (data.has_bingo) {
+                // BINGO! This will be handled by the socket event
+                addSystemMessage('🎉 BINGO! Checking your card...');
+            }
+        } else {
+            throw new Error(data.error || 'Failed to mark number');
         }
-    });
-    
-    addLogMessage('user', `Marked number ${number} on your card`);
+    } catch (error) {
+        console.error('Mark number error:', error);
+        showError(error.message || 'Failed to mark number.');
+    }
 }
 
-// Handle number drawn
+async function startGame() {
+    if (!gameState.game) {
+        showError('No game to start.');
+        return;
+    }
+    
+    if (gameState.game.created_by !== gameState.user.id) {
+        showError('Only the game creator can start the game.');
+        return;
+    }
+    
+    try {
+        showLoading('Starting game...');
+        
+        const response = await fetch(`${config.API_URL}/games/${gameState.game.id}/start`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${gameState.token}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            addSystemMessage('Game started! Numbers will be drawn now.');
+        } else {
+            throw new Error(data.error || 'Failed to start game');
+        }
+        
+        hideLoading();
+    } catch (error) {
+        console.error('Start game error:', error);
+        hideLoading();
+        showError(error.message || 'Failed to start game.');
+    }
+}
+
+async function drawNumber() {
+    if (!gameState.game) {
+        showError('No active game.');
+        return;
+    }
+    
+    if (gameState.game.created_by !== gameState.user.id) {
+        showError('Only the game creator can draw numbers.');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${config.API_URL}/games/${gameState.game.id}/draw`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${gameState.token}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            addSystemMessage(`Number ${data.number} drawn!`);
+        } else {
+            throw new Error(data.error || 'Failed to draw number');
+        }
+    } catch (error) {
+        console.error('Draw number error:', error);
+        showError(error.message || 'Failed to draw number.');
+    }
+}
+
+// Event Handlers
+function handlePlayerJoined(data) {
+    gameState.players.push({
+        id: data.user_id,
+        username: data.username,
+        card_number: data.card_number
+    });
+    
+    updatePlayerCount();
+    addSystemMessage(`${data.username} joined the game`);
+}
+
+function handleGameStarted(data) {
+    gameState.game.status = 'active';
+    updateGameUI();
+    addSystemMessage(`Game started! Prize pool: $${data.prize_pool.toFixed(2)}`);
+}
+
 function handleNumberDrawn(data) {
-    const number = data.number;
-    
-    // Add to drawn numbers
-    gameState.drawnNumbers.push(number);
-    
-    // Update UI
+    gameState.drawnNumbers.push(data.number);
     updateDrawnNumbers();
-    elements.drawnCount.textContent = data.total_drawn;
+    addSystemMessage(`Number ${data.number} drawn!`);
     
-    // Check if number is on card
-    if (gameState.selectedCard) {
-        const cardNumbers = gameState.selectedCard.card_data.flat();
-        if (cardNumbers.includes(number)) {
-            addLogMessage('system', `Number ${number} is on your card!`);
+    // Check if this number is on our card
+    if (gameState.selectedCard && gameState.selectedCard.data) {
+        const cardNumbers = gameState.selectedCard.data.flat();
+        if (cardNumbers.includes(data.number)) {
+            addSystemMessage(`Number ${data.number} is on your card!`);
         }
     }
 }
 
-// Update drawn numbers display
+function handleBingo(data) {
+    if (data.winner_id === gameState.user.id) {
+        // We won!
+        showWinnerModal(data);
+        addSystemMessage(`🎉 YOU WON $${data.prize_amount.toFixed(2)}! 🎉`);
+    } else {
+        // Someone else won
+        addSystemMessage(`🎉 ${data.winner_name} won $${data.prize_amount.toFixed(2)}!`);
+    }
+}
+
+// UI Updates
+function updateUserUI() {
+    if (gameState.user) {
+        elements.userName.textContent = gameState.user.username || gameState.user.first_name || 'Player';
+        elements.userBalance.textContent = `$${gameState.user.balance.toFixed(2)}`;
+    }
+}
+
+function updateGameUI() {
+    if (gameState.game) {
+        elements.roomCode.textContent = gameState.game.room_code;
+        elements.gameStatus.textContent = gameState.game.status.toUpperCase();
+        elements.playerCount.textContent = gameState.players.length;
+        elements.prizePool.textContent = gameState.game.prize_pool ? 
+            `$${gameState.game.prize_pool.toFixed(2)}` : '$0.00';
+        
+        // Update button states
+        if (gameState.game.status === 'waiting') {
+            elements.startGameBtn.disabled = gameState.game.created_by !== gameState.user.id;
+        } else {
+            elements.startGameBtn.disabled = true;
+        }
+    }
+}
+
+function updatePlayerCount() {
+    elements.playerCount.textContent = gameState.players.length;
+}
+
 function updateDrawnNumbers() {
     elements.drawnNumbers.innerHTML = '';
+    elements.drawnCount.textContent = gameState.drawnNumbers.length;
     
     gameState.drawnNumbers.forEach(number => {
         const bubble = document.createElement('div');
@@ -299,237 +763,244 @@ function updateDrawnNumbers() {
         bubble.textContent = number;
         elements.drawnNumbers.appendChild(bubble);
     });
-    
-    // Highlight last number
-    const bubbles = elements.drawnNumbers.querySelectorAll('.number-bubble');
-    if (bubbles.length > 0) {
-        bubbles[bubbles.length - 1].classList.add('new');
-        
-        // Remove highlight after animation
-        setTimeout(() => {
-            bubbles[bubbles.length - 1].classList.remove('new');
-        }, 2000);
-    }
 }
 
-// Handle player joined
-function handlePlayerJoined(data) {
-    gameState.players.push(data);
-    elements.playerCount.textContent = data.total_players;
-    
-    // Update prize pool (simplified)
-    const prize = data.total_players * getCardPrice() * 0.8;
-    elements.prizePool.textContent = prize.toFixed(2);
-    
-    addLogMessage('system', `${data.username} joined the game`);
+// Chat Functions
+function addSystemMessage(message) {
+    addMessage('system', 'System', message, new Date().toISOString());
 }
 
-// Handle bingo win
-function handleBingoWin(data) {
-    if (data.winner_id === parseInt(gameState.userId)) {
-        // Current user won
-        elements.prizeAmount.textContent = data.prize_amount.toFixed(2);
-        elements.winnerModal.style.display = 'flex';
-        
-        addLogMessage('system', `🎉 You won $${data.prize_amount}! Congratulations!`);
+function addChatMessage(username, message, timestamp) {
+    addMessage('user', username, message, timestamp);
+}
+
+function addMessage(type, sender, message, timestamp) {
+    const messageElement = document.createElement('div');
+    messageElement.className = `log-entry ${type}`;
+    
+    const time = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    if (type === 'system') {
+        messageElement.innerHTML = `<i class="fas fa-info-circle"></i> <strong>${sender}:</strong> ${message}`;
     } else {
-        // Another player won
-        addLogMessage('system', `🎉 ${data.winner_name} won the game with $${data.prize_amount}!`);
+        messageElement.innerHTML = `<i class="fas fa-user"></i> <strong>${sender}:</strong> ${message} <span class="message-time">${time}</span>`;
+    }
+    
+    elements.gameLog.appendChild(messageElement);
+    elements.gameLog.scrollTop = elements.gameLog.scrollHeight;
+    
+    // Keep only last 100 messages
+    const messages = elements.gameLog.querySelectorAll('.log-entry');
+    if (messages.length > 100) {
+        messages[0].remove();
     }
 }
 
-// Claim bingo
-async function claimBingo() {
-    if (!gameState.selectedCard || !gameState.gameId) {
-        showError('You need to select a card first');
-        return;
-    }
-    
-    // Get marked numbers
-    const markedCells = elements.bingoGrid.querySelectorAll('.bingo-cell.marked');
-    const markedNumbers = Array.from(markedCells).map(cell => {
-        const num = parseInt(cell.textContent);
-        return isNaN(num) ? 'FREE' : num;
-    });
-    
-    // Send claim to server
-    gameState.socket.emit('claim_bingo', {
-        room_code: gameState.roomCode,
-        user_id: gameState.userId,
-        card_data: JSON.stringify(gameState.selectedCard.card_data),
-        marked_numbers: markedNumbers,
-        card_number: gameState.selectedCard.card_number
-    });
-    
-    addLogMessage('user', 'Claiming BINGO!');
-}
-
-// Setup event listeners
-function setupEventListeners() {
-    // Pagination
-    elements.prevPage.addEventListener('click', () => {
-        if (gameState.currentPage > 1) {
-            loadCards(gameState.currentPage - 1);
-        }
-    });
-    
-    elements.nextPage.addEventListener('click', () => {
-        if (gameState.currentPage < gameState.totalPages) {
-            loadCards(gameState.currentPage + 1);
-        }
-    });
-    
-    // Game buttons
-    elements.markNumberBtn.addEventListener('click', () => {
-        const number = prompt('Enter number to mark (1-75):');
-        if (number && number >= 1 && number <= 75) {
-            markNumber(parseInt(number));
-        }
-    });
-    
-    elements.claimBingoBtn.addEventListener('click', claimBingo);
-    
-    elements.leaveGameBtn.addEventListener('click', () => {
-        if (confirm('Are you sure you want to leave the game?')) {
-            window.location.reload();
-        }
-    });
-    
-    elements.startGameBtn.addEventListener('click', async () => {
-        try {
-            const response = await fetch(`${getBackendUrl()}/api/game/${gameState.gameId}/draw`, {
-                method: 'POST'
-            });
-            
-            if (!response.ok) throw new Error('Failed to draw number');
-            
-            const data = await response.json();
-            addLogMessage('system', `Number ${data.number} drawn!`);
-            
-        } catch (error) {
-            showError(error.message);
-        }
-    });
-    
-    elements.inviteFriendsBtn.addEventListener('click', () => {
-        const inviteText = `Join my Bingo game! Room: ${gameState.roomCode}\n\nPlay at: ${window.location.href}`;
-        
-        if (navigator.share) {
-            navigator.share({
-                title: 'Telegram Bingo',
-                text: inviteText
-            });
-        } else {
-            navigator.clipboard.writeText(inviteText)
-                .then(() => alert('Invite link copied to clipboard!'))
-                .catch(() => prompt('Copy this invite link:', inviteText));
-        }
-    });
-    
-    elements.refreshBtn.addEventListener('click', () => {
-        loadUserInfo();
-        addLogMessage('system', 'Refreshed game data');
-    });
-    
-    // Chat
-    elements.sendChatBtn.addEventListener('click', sendChatMessage);
-    elements.chatInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            sendChatMessage();
-        }
-    });
-    
-    // Modal
-    document.querySelector('.close-modal').addEventListener('click', () => {
-        elements.winnerModal.style.display = 'none';
-    });
-    
-    elements.collectPrizeBtn.addEventListener('click', () => {
-        elements.winnerModal.style.display = 'none';
-        addLogMessage('system', 'Prize collected! Returning to main menu...');
-        setTimeout(() => window.location.reload(), 2000);
-    });
-    
-    // Click outside modal to close
-    elements.winnerModal.addEventListener('click', (e) => {
-        if (e.target === elements.winnerModal) {
-            elements.winnerModal.style.display = 'none';
-        }
-    });
-}
-
-// Send chat message
 function sendChatMessage() {
     const message = elements.chatInput.value.trim();
-    if (!message) return;
+    if (!message || !gameState.roomCode || !gameState.socket) return;
     
-    addLogMessage('user', message);
-    elements.chatInput.value = '';
-    
-    // In a real implementation, send to server
-    // gameState.socket.emit('chat', { message, user_id: gameState.userId });
-}
-
-// Add log message
-function addLogMessage(type, message) {
-    const logEntry = document.createElement('div');
-    logEntry.className = `log-entry ${type}`;
-    
-    const icon = type === 'system' ? 'fa-info-circle' : 'fa-user';
-    logEntry.innerHTML = `<i class="fas ${icon}"></i> ${message}`;
-    
-    elements.gameLog.appendChild(logEntry);
-    elements.gameLog.scrollTop = elements.gameLog.scrollHeight;
-}
-
-// Show error message
-function showError(message) {
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'error-message';
-    errorDiv.innerHTML = `
-        <i class="fas fa-exclamation-circle"></i>
-        <span>${message}</span>
-        <button class="close-error">&times;</button>
-    `;
-    
-    errorDiv.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #ef4444;
-        color: white;
-        padding: 15px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        z-index: 1000;
-        animation: slideIn 0.3s;
-    `;
-    
-    document.body.appendChild(errorDiv);
-    
-    errorDiv.querySelector('.close-error').addEventListener('click', () => {
-        errorDiv.style.animation = 'slideOut 0.3s';
-        setTimeout(() => errorDiv.remove(), 300);
+    gameState.socket.emit('chat_message', {
+        room_code: gameState.roomCode,
+        user_id: gameState.user.id,
+        username: gameState.user.username || gameState.user.first_name,
+        message: message
     });
     
-    setTimeout(() => {
-        if (errorDiv.parentNode) {
-            errorDiv.style.animation = 'slideOut 0.3s';
-            setTimeout(() => errorDiv.remove(), 300);
+    elements.chatInput.value = '';
+}
+
+// Modals
+function showWinnerModal(data) {
+    elements.prizeAmount.textContent = data.prize_amount.toFixed(2);
+    elements.winnerModal.style.display = 'flex';
+}
+
+function showLoading(message = 'Loading...') {
+    if (elements.loadingModal) {
+        elements.loadingModal.querySelector('.loading-message').textContent = message;
+        elements.loadingModal.style.display = 'flex';
+    }
+    gameState.isLoading = true;
+}
+
+function hideLoading() {
+    if (elements.loadingModal) {
+        elements.loadingModal.style.display = 'none';
+    }
+    gameState.isLoading = false;
+}
+
+function showError(message) {
+    if (elements.errorModal && elements.errorMessage) {
+        elements.errorMessage.textContent = message;
+        elements.errorModal.style.display = 'flex';
+    } else {
+        alert(message);
+    }
+}
+
+function showLoginScreen() {
+    // TODO: Implement login screen
+    elements.cardSelection.innerHTML = `
+        <div class="login-screen">
+            <h2>Welcome to Telegram Bingo</h2>
+            <p>Please open this game through the Telegram bot to play.</p>
+            <p>If you're the bot owner, make sure to configure the Mini App URL correctly.</p>
+            <button onclick="location.reload()" class="btn-retry">Retry</button>
+        </div>
+    `;
+    elements.cardSelection.style.display = 'block';
+}
+
+// Event Listeners Setup
+function setupEventListeners() {
+    // Pagination
+    if (elements.prevPage) {
+        elements.prevPage.addEventListener('click', () => {
+            if (gameState.currentPage > 1) {
+                loadCards(gameState.game?.id, gameState.currentPage - 1);
+            }
+        });
+    }
+    
+    if (elements.nextPage) {
+        elements.nextPage.addEventListener('click', () => {
+            if (gameState.currentPage < gameState.totalPages) {
+                loadCards(gameState.game?.id, gameState.currentPage + 1);
+            }
+        });
+    }
+    
+    // Game buttons
+    if (elements.markNumberBtn) {
+        elements.markNumberBtn.addEventListener('click', () => {
+            const number = prompt('Enter number to mark (1-75):');
+            if (number && /^\d+$/.test(number) && number >= 1 && number <= 75) {
+                const cell = findCellByNumber(parseInt(number));
+                if (cell) {
+                    markCell(cell, parseInt(number));
+                } else {
+                    showError('This number is not on your card.');
+                }
+            }
+        });
+    }
+    
+    if (elements.claimBingoBtn) {
+        elements.claimBingoBtn.addEventListener('click', () => {
+            // In this implementation, bingo is automatically detected
+            // when numbers are marked
+            showError('BINGO is automatically detected when you complete a line.');
+        });
+    }
+    
+    if (elements.leaveGameBtn) {
+        elements.leaveGameBtn.addEventListener('click', () => {
+            if (confirm('Are you sure you want to leave the game?')) {
+                if (gameState.socket && gameState.roomCode) {
+                    gameState.socket.emit('leave', { room_code: gameState.roomCode });
+                }
+                window.location.reload();
+            }
+        });
+    }
+    
+    if (elements.startGameBtn) {
+        elements.startGameBtn.addEventListener('click', startGame);
+    }
+    
+    if (elements.inviteFriendsBtn) {
+        elements.inviteFriendsBtn.addEventListener('click', () => {
+            if (gameState.roomCode) {
+                const inviteText = `🎮 Join my Bingo game!\nRoom Code: ${gameState.roomCode}\n\nPlay at: ${window.location.origin}?room=${gameState.roomCode}`;
+                
+                if (navigator.share) {
+                    navigator.share({
+                        title: 'Telegram Bingo',
+                        text: inviteText
+                    });
+                } else {
+                    navigator.clipboard.writeText(inviteText)
+                        .then(() => alert('Invite link copied to clipboard!'))
+                        .catch(() => prompt('Copy this invite link:', inviteText));
+                }
+            } else {
+                showError('Join a game first to invite friends.');
+            }
+        });
+    }
+    
+    if (elements.refreshBtn) {
+        elements.refreshBtn.addEventListener('click', () => {
+            window.location.reload();
+        });
+    }
+    
+    // Chat
+    if (elements.sendChatBtn && elements.chatInput) {
+        elements.sendChatBtn.addEventListener('click', sendChatMessage);
+        elements.chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendChatMessage();
+            }
+        });
+    }
+    
+    // Modal close buttons
+    document.querySelectorAll('.close-modal').forEach(button => {
+        button.addEventListener('click', () => {
+            button.closest('.modal').style.display = 'none';
+        });
+    });
+    
+    if (elements.collectPrizeBtn) {
+        elements.collectPrizeBtn.addEventListener('click', () => {
+            elements.winnerModal.style.display = 'none';
+            window.location.reload();
+        });
+    }
+    
+    // Click outside modals to close
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+    });
+}
+
+// Helper Functions
+function findCellByNumber(number) {
+    const cells = elements.bingoGrid.querySelectorAll('.bingo-cell:not(.free)');
+    for (const cell of cells) {
+        if (parseInt(cell.textContent) === number) {
+            return cell;
         }
-    }, 5000);
+    }
+    return null;
 }
 
-// Helper functions
-function getCardPrice() {
-    return 5.00; // Should match Config.CARD_PRICE
+// Export for debugging
+if (config.DEBUG) {
+    window.gameState = gameState;
+    window.config = config;
+    window.elements = elements;
 }
 
-function getBackendUrl() {
-    return 'http://localhost:5000'; // Replace with your actual backend URL
-}
+// Handle page visibility changes
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && gameState.socket && !gameState.socket.connected) {
+        // Page became visible and socket is disconnected, try to reconnect
+        gameState.socket.connect();
+    }
+});
 
-// Initialize when DOM is loaded
-document.addEventListener('DOMContentLoaded', initWebApp);
+// Handle beforeunload
+window.addEventListener('beforeunload', () => {
+    if (gameState.socket) {
+        gameState.socket.disconnect();
+    }
+});
