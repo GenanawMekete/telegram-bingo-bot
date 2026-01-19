@@ -5,24 +5,18 @@ Production entry point for Render.
 import os
 import sys
 
-# Add the current directory to Python path
+# Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Eventlet monkey patch
-import eventlet
-eventlet.monkey_patch()
-
-# Import the Flask app
+# Import the app
 from backend.app import app, socketio, init_database
 
-def start_server():
-    """Start the production server."""
+def main():
+    """Start the server."""
     print("🚀 Starting Bingo backend...")
     print(f"🐍 Python: {sys.version}")
-    print(f"📁 Directory: {os.getcwd()}")
     
     # Initialize database
-    print("🗄️ Initializing database...")
     init_database()
     
     if os.environ.get('RENDER'):
@@ -34,7 +28,8 @@ def start_server():
             host='0.0.0.0',
             port=port,
             debug=False,
-            log_output=True
+            allow_unsafe_werkzeug=True,
+            use_reloader=False
         )
     else:
         print("🔧 Development mode on port 5000")
@@ -46,4 +41,4 @@ def start_server():
         )
 
 if __name__ == '__main__':
-    start_server()
+    main()
