@@ -1,6 +1,6 @@
 """
-Telegram Bingo Backend API
-Compatible with Python 3.11 and Render
+Telegram Bingo Backend - Production Ready
+Simplified for Render deployment
 """
 
 import os
@@ -12,14 +12,18 @@ import logging
 from datetime import datetime, timedelta
 from functools import wraps
 
-# Eventlet monkey patch - MUST BE FIRST
-import eventlet
-eventlet.monkey_patch()
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
 
-# Now import Flask and other modules
+# Import Flask
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, send_from_directory
-from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask import Flask, request, jsonify
+from flask_socketio import SocketIO, emit, join_room
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import jwt
@@ -27,26 +31,14 @@ import jwt
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO if os.environ.get('RENDER') else logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
-
 # Initialize Flask app
-app = Flask(__name__, static_folder='../webapp')
+app = Flask(__name__)
 
 # ========== CONFIGURATION ==========
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
 # Database configuration
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///bingo.db')
-
-# Convert postgres:// to postgresql:// for SQLAlchemy
 if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 
@@ -58,32 +50,18 @@ app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
 # ========== EXTENSIONS ==========
 db = SQLAlchemy(app)
 
-# Configure SocketIO
-is_production = os.environ.get('RENDER') is not None
+# Configure SocketIO without eventlet/gevent for Render
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode='threading',  # Use threading instead of eventlet/gevent
+    logger=True,
+    engineio_logger=False,
+    ping_timeout=60,
+    ping_interval=25
+)
 
-if is_production:
-    # Production settings
-    socketio = SocketIO(app,
-                       cors_allowed_origins="*",
-                       async_mode='eventlet',
-                       ping_timeout=300,
-                       ping_interval=60,
-                       logger=False,
-                       engineio_logger=False,
-                       transports=['websocket', 'polling'])
-else:
-    # Development settings
-    socketio = SocketIO(app,
-                       cors_allowed_origins="*",
-                       async_mode='eventlet',
-                       debug=True,
-                       logger=True,
-                       engineio_logger=True)
-
-CORS(app, resources={
-    r"/api/*": {"origins": "*"},
-    r"/socket.io/*": {"origins": "*"}
-})
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # ========== DATABASE MODELS ==========
 class User(db.Model):
@@ -91,16 +69,13 @@ class User(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     telegram_id = db.Column(db.BigInteger, unique=True, nullable=False)
-    phone_number = db.Column(db.String(20))
     first_name = db.Column(db.String(100))
-    last_name = db.Column(db.String(100))
     username = db.Column(db.String(100))
     balance = db.Column(db.Float, default=10.00)
     total_won = db.Column(db.Float, default=0.00)
     games_played = db.Column(db.Integer, default=0)
     bingos = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    last_login = db.Column(db.DateTime)
     
     def to_dict(self):
         return {
@@ -139,16 +114,10 @@ class Game(db.Model):
     status = db.Column(db.String(20), default='waiting')
     drawn_numbers = db.Column(db.Text, default='[]')
     prize_pool = db.Column(db.Float, default=0.00)
-    winner_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
-    is_private = db.Column(db.Boolean, default=False)
+    created_by = db.Column(db.Integer)
     started_at = db.Column(db.DateTime)
     finished_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    players = db.relationship('PlayerGame', backref='game', lazy=True)
-    winner = db.relationship('User', foreign_keys=[winner_id])
-    creator = db.relationship('User', foreign_keys=[created_by])
     
     def to_dict(self):
         return {
@@ -157,7 +126,6 @@ class Game(db.Model):
             'status': self.status,
             'drawn_numbers': json.loads(self.drawn_numbers) if self.drawn_numbers else [],
             'prize_pool': float(self.prize_pool),
-            'player_count': len(self.players),
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
@@ -165,8 +133,8 @@ class PlayerGame(db.Model):
     __tablename__ = 'player_games'
     
     id = db.Column(db.Integer, primary_key=True)
-    game_id = db.Column(db.Integer, db.ForeignKey('games.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    game_id = db.Column(db.Integer, nullable=False)
+    user_id = db.Column(db.Integer, nullable=False)
     card_number = db.Column(db.Integer, nullable=False)
     card_data = db.Column(db.Text, nullable=False)
     marked_numbers = db.Column(db.Text, default='[]')
@@ -175,6 +143,7 @@ class PlayerGame(db.Model):
     
     def to_dict(self):
         return {
+            'id': self.id,
             'game_id': self.game_id,
             'user_id': self.user_id,
             'card_number': self.card_number,
@@ -187,7 +156,7 @@ class Transaction(db.Model):
     __tablename__ = 'transactions'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    user_id = db.Column(db.Integer, nullable=False)
     type = db.Column(db.String(20), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     description = db.Column(db.Text)
@@ -195,6 +164,8 @@ class Transaction(db.Model):
     
     def to_dict(self):
         return {
+            'id': self.id,
+            'user_id': self.user_id,
             'type': self.type,
             'amount': float(self.amount),
             'description': self.description,
@@ -218,7 +189,9 @@ def token_required(f):
         try:
             data = jwt.decode(token, app.config['JWT_SECRET_KEY'], algorithms=["HS256"])
             current_user = User.query.get(data['user_id'])
-        except:
+            if not current_user:
+                return jsonify({'error': 'User not found'}), 401
+        except Exception as e:
             return jsonify({'error': 'Invalid token'}), 401
         
         return f(current_user, *args, **kwargs)
@@ -255,24 +228,58 @@ def check_bingo(card_data, marked_numbers):
     
     return False
 
+def generate_card():
+    """Generate a single bingo card."""
+    columns = {
+        'B': sorted(random.sample(range(1, 16), 5)),
+        'I': sorted(random.sample(range(16, 31), 5)),
+        'N': sorted(random.sample(range(31, 46), 5)),
+        'G': sorted(random.sample(range(46, 61), 5)),
+        'O': sorted(random.sample(range(61, 76), 5))
+    }
+    
+    card = []
+    for i in range(5):
+        row = [
+            columns['B'][i],
+            columns['I'][i],
+            columns['N'][i],
+            columns['G'][i],
+            columns['O'][i]
+        ]
+        card.append(row)
+    
+    card[2][2] = 'FREE'  # Middle cell
+    return card
+
 # ========== API ROUTES ==========
 @app.route('/')
 def index():
     return jsonify({
         'status': 'online',
         'service': 'Bingo API',
-        'version': '1.0.0'
+        'version': '1.0.0',
+        'timestamp': datetime.utcnow().isoformat()
     })
 
 @app.route('/api/health')
 def health():
+    """Health check endpoint."""
+    try:
+        db.session.execute('SELECT 1')
+        db_status = 'connected'
+    except:
+        db_status = 'disconnected'
+    
     return jsonify({
         'status': 'healthy',
+        'database': db_status,
         'timestamp': datetime.utcnow().isoformat()
     })
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
+    """User login."""
     data = request.json
     telegram_id = data.get('telegram_id')
     
@@ -282,7 +289,6 @@ def login():
     user = User.query.filter_by(telegram_id=telegram_id).first()
     
     if not user:
-        # Create new user
         user = User(
             telegram_id=telegram_id,
             first_name=data.get('first_name', 'User'),
@@ -292,12 +298,10 @@ def login():
         db.session.add(user)
         db.session.commit()
     
-    user.last_login = datetime.utcnow()
-    db.session.commit()
-    
     token = generate_token(user)
     
     return jsonify({
+        'success': True,
         'token': token,
         'user': user.to_dict()
     })
@@ -306,12 +310,14 @@ def login():
 @token_required
 def get_user_profile(current_user):
     return jsonify({
+        'success': True,
         'user': current_user.to_dict()
     })
 
 @app.route('/api/cards', methods=['GET'])
 @token_required
 def get_available_cards(current_user):
+    """Get available cards."""
     page = request.args.get('page', 1, type=int)
     per_page = 20
     
@@ -320,6 +326,7 @@ def get_available_cards(current_user):
         .paginate(page=page, per_page=per_page, error_out=False)
     
     return jsonify({
+        'success': True,
         'cards': [card.to_dict() for card in cards.items],
         'total': cards.total,
         'page': cards.page,
@@ -329,6 +336,7 @@ def get_available_cards(current_user):
 @app.route('/api/cards/select', methods=['POST'])
 @token_required
 def select_card(current_user):
+    """Select a bingo card."""
     data = request.json
     card_number = data.get('card_number')
     room_code = data.get('room_code')
@@ -382,17 +390,18 @@ def select_card(current_user):
         user_id=current_user.id,
         type='game_entry',
         amount=-CARD_PRICE,
-        description=f'Bingo card #{card_number}'
+        description=f'Card #{card_number}'
     )
     db.session.add(transaction)
     
     db.session.commit()
     
-    # Notify via WebSocket
+    # Emit WebSocket event
     socketio.emit('player_joined', {
         'user_id': current_user.id,
         'username': current_user.first_name,
-        'room_code': game.room_code
+        'room_code': game.room_code,
+        'card_number': card.card_number
     }, room=game.room_code)
     
     return jsonify({
@@ -405,6 +414,7 @@ def select_card(current_user):
 @app.route('/api/games', methods=['GET'])
 @token_required
 def get_games(current_user):
+    """Get available games."""
     status = request.args.get('status', 'waiting')
     
     query = Game.query
@@ -414,32 +424,14 @@ def get_games(current_user):
     games = query.order_by(Game.created_at.desc()).limit(20).all()
     
     return jsonify({
+        'success': True,
         'games': [game.to_dict() for game in games]
     })
-
-@app.route('/api/games/<int:game_id>/start', methods=['POST'])
-@token_required
-def start_game(current_user, game_id):
-    game = Game.query.get(game_id)
-    if not game:
-        return jsonify({'error': 'Game not found'}), 404
-    
-    if game.created_by != current_user.id:
-        return jsonify({'error': 'Not game creator'}), 403
-    
-    game.status = 'active'
-    game.started_at = datetime.utcnow()
-    db.session.commit()
-    
-    socketio.emit('game_started', {
-        'room_code': game.room_code
-    }, room=game.room_code)
-    
-    return jsonify({'success': True})
 
 @app.route('/api/games/<int:game_id>/draw', methods=['POST'])
 @token_required
 def draw_number_endpoint(current_user, game_id):
+    """Draw a number."""
     game = Game.query.get(game_id)
     if not game:
         return jsonify({'error': 'Game not found'}), 404
@@ -459,12 +451,15 @@ def draw_number_endpoint(current_user, game_id):
     game.drawn_numbers = json.dumps(drawn_numbers)
     db.session.commit()
     
+    # Emit WebSocket event
     socketio.emit('number_drawn', {
         'number': new_number,
-        'total_drawn': len(drawn_numbers)
+        'total_drawn': len(drawn_numbers),
+        'room_code': game.room_code
     }, room=game.room_code)
     
     return jsonify({
+        'success': True,
         'number': new_number,
         'total_drawn': len(drawn_numbers)
     })
@@ -472,6 +467,7 @@ def draw_number_endpoint(current_user, game_id):
 @app.route('/api/games/<int:game_id>/mark', methods=['POST'])
 @token_required
 def mark_number(current_user, game_id):
+    """Mark a number on card."""
     data = request.json
     number = data.get('number')
     
@@ -479,11 +475,7 @@ def mark_number(current_user, game_id):
         return jsonify({'error': 'Number required'}), 400
     
     # Get player's card
-    player_game = PlayerGame.query.filter_by(
-        game_id=game_id,
-        user_id=current_user.id
-    ).first()
-    
+    player_game = PlayerGame.query.filter_by(game_id=game_id, user_id=current_user.id).first()
     if not player_game:
         return jsonify({'error': 'Not in game'}), 400
     
@@ -507,9 +499,8 @@ def mark_number(current_user, game_id):
         ).filter(PlayerGame.user_id != current_user.id).count()
         
         if other_bingos == 0:
-            # Winner!
+            # Winner
             game.status = 'finished'
-            game.winner_id = current_user.id
             game.finished_at = datetime.utcnow()
             
             current_user.balance += game.prize_pool
@@ -517,10 +508,12 @@ def mark_number(current_user, game_id):
             current_user.games_played += 1
             current_user.bingos += 1
             
+            # Emit WebSocket event
             socketio.emit('bingo', {
                 'winner_id': current_user.id,
                 'winner_name': current_user.first_name,
-                'prize_amount': float(game.prize_pool)
+                'prize_amount': float(game.prize_pool),
+                'room_code': game.room_code
             }, room=game.room_code)
     
     db.session.commit()
@@ -534,7 +527,7 @@ def mark_number(current_user, game_id):
 # ========== WEBSOCKET EVENTS ==========
 @socketio.on('connect')
 def handle_connect():
-    emit('connected', {'status': 'connected'})
+    emit('connected', {'status': 'connected', 'timestamp': datetime.utcnow().isoformat()})
 
 @socketio.on('join')
 def handle_join(data):
@@ -543,7 +536,14 @@ def handle_join(data):
     
     if room and user_id:
         join_room(room)
-        emit('joined', {'room': room, 'user_id': user_id}, room=room)
+        user = User.query.get(user_id)
+        username = user.first_name if user else f'User{user_id}'
+        
+        emit('player_joined_ws', {
+            'user_id': user_id,
+            'username': username,
+            'room': room
+        }, room=room)
 
 @socketio.on('chat_message')
 def handle_chat_message(data):
@@ -557,33 +557,57 @@ def handle_chat_message(data):
         
         emit('chat_message', {
             'username': username,
-            'message': message
+            'message': message,
+            'timestamp': datetime.utcnow().isoformat()
         }, room=room)
 
 # ========== INITIALIZATION ==========
 def init_database():
-    """Initialize database tables."""
+    """Initialize database and generate cards."""
     with app.app_context():
         db.create_all()
         logger.info("Database tables created")
         
-        # Generate cards if needed
-        try:
-            from card_generator import generate_all_cards
-            if BingoCard.query.count() == 0:
-                generate_all_cards()
-        except Exception as e:
-            logger.warning(f"Could not generate cards: {e}")
+        # Generate 400 cards if none exist
+        if BingoCard.query.count() == 0:
+            logger.info("Generating bingo cards...")
+            cards_generated = 0
+            existing_cards = set()
+            
+            for card_number in range(1, 401):
+                for _ in range(50):  # Try 50 times max
+                    card = generate_card()
+                    card_json = json.dumps(card)
+                    
+                    if card_json not in existing_cards:
+                        bingo_card = BingoCard(
+                            card_number=card_number,
+                            card_data=card_json,
+                            is_used=False
+                        )
+                        db.session.add(bingo_card)
+                        existing_cards.add(card_json)
+                        cards_generated += 1
+                        break
+            
+            db.session.commit()
+            logger.info(f"Generated {cards_generated} bingo cards")
+        else:
+            logger.info(f"Database already has {BingoCard.query.count()} cards")
 
 # ========== RUN APPLICATION ==========
 if __name__ == '__main__':
     init_database()
     
     port = int(os.environ.get('PORT', 5000))
+    debug_mode = not os.environ.get('RENDER')
     
-    if is_production:
-        logger.info(f"Starting production server on port {port}")
-        socketio.run(app, host='0.0.0.0', port=port, debug=False)
-    else:
-        logger.info(f"Starting development server on port {port}")
-        socketio.run(app, host='0.0.0.0', port=port, debug=True)
+    logger.info(f"Starting server on port {port}")
+    socketio.run(
+        app,
+        host='0.0.0.0',
+        port=port,
+        debug=debug_mode,
+        allow_unsafe_werkzeug=True,
+        use_reloader=False
+    )
