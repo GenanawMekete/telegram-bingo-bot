@@ -1,28 +1,24 @@
-# Core Flask
-Flask==2.3.3
+# Flask and core
+Flask==2.2.5
 Flask-CORS==4.0.0
 Flask-SQLAlchemy==3.0.5
-SQLAlchemy==2.0.23
 
 # WebSocket
-flask-socketio==5.3.4
-python-socketio==5.9.0
-python-engineio==4.6.1
+flask-socketio==5.3.2
+python-socketio==5.8.0
+python-engineio==4.4.0
 
-# Production server
+# Server
 gunicorn==21.2.0
 eventlet==0.33.3
 
 # Database
-psycopg2-binary
-SQLAlchemy-Utils==0.41.1
+psycopg2-binary==2.9.7
 
 # Telegram bot
-python-telegram-bot==20.6
+python-telegram-bot==20.3
 
 # Utilities
 python-dotenv==1.0.0
 PyJWT==2.8.0
 requests==2.31.0
-Werkzeug==2.3.7
-click==8.1.7
