@@ -4,16 +4,15 @@ services:
     name: bingo-backend
     env: python
     plan: free
-    region: oregon  # or singapore, frankfurt, etc.
+    region: oregon
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-    startCommand: gunicorn run:app --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT --timeout 120
+    startCommand: gunicorn run:app --worker-class gevent --bind 0.0.0.0:$PORT --timeout 120 --keep-alive 5
     healthCheckPath: /api/health
-    autoDeploy: true
     envVars:
       - key: DATABASE_URL
-        value: postgresql://bingo_user:password@localhost/bingo_db  # Will be replaced by Render
+        sync: false  # Will be set to your PostgreSQL URL
       - key: RENDER
         value: true
       - key: SECRET_KEY
@@ -24,6 +23,8 @@ services:
         value: https://your-bingo-game.netlify.app  # Your Netlify URL
       - key: CARD_PRICE
         value: "5.00"
+      - key: PYTHON_VERSION
+        value: "3.11.0"
 
   # Telegram Bot Service
   - type: web
@@ -35,16 +36,15 @@ services:
       pip install --upgrade pip
       pip install -r requirements.txt
     startCommand: python bot/bot.py
-    autoDeploy: true
     envVars:
       - key: BOT_TOKEN
-        sync: false  # You'll set this in Render dashboard
+        sync: false
       - key: DATABASE_URL
-        sync: false  # Same as backend
+        sync: false
       - key: WEBAPP_URL
         value: https://your-bingo-game.netlify.app
       - key: BACKEND_URL
-        sync: false  # Will be bingo-backend.onrender.com
+        sync: false
 
 databases:
   - name: bingo-db
