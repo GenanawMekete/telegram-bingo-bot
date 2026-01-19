@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Production entry point for Render deployment.
-This file allows gunicorn to find the Flask app.
+Production entry point for Render deployment with gevent.
 """
 import os
 import sys
@@ -9,10 +8,13 @@ import sys
 # Add the current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Gevent monkey patch (important!)
+from gevent import monkey
+monkey.patch_all()
+
 # Import from backend
 from backend.app import app, socketio
 
-# Initialize database for production
 def init_production_database():
     """Initialize database for production."""
     from backend.app import db
@@ -31,12 +33,24 @@ def init_production_database():
         else:
             print(f"Database already has {BingoCard.query.count()} cards.")
 
-# Initialize database when starting in production
-if os.environ.get('RENDER'):
-    print("Starting production database initialization...")
-    init_production_database()
-
-# Create app instance for gunicorn
 if __name__ == "__main__":
-    # Development mode
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    # Check if running on Render
+    if os.environ.get('RENDER'):
+        print("Starting production server with gevent...")
+        init_production_database()
+        
+        # Get port from environment
+        port = int(os.environ.get('PORT', 10000))
+        
+        # Run with gevent production server
+        from gevent.pywsgi import WSGIServer
+        from geventwebsocket.handler import WebSocketHandler
+        
+        http_server = WSGIServer(('0.0.0.0', port), app, handler_class=WebSocketHandler)
+        print(f"Server running on port {port}")
+        http_server.serve_forever()
+    else:
+        # Development mode
+        print("Starting development server...")
+        init_production_database()
+        socketio.run(app, host='0.0.0.0', port=5000, debug=True)
