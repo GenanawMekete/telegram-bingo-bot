@@ -1,22 +1,25 @@
-# WebSocket Server
-eventlet==0.33.3
-gunicorn==21.2.0
-
-# Backend
+# Core dependencies
 Flask==3.0.0
 Flask-CORS==4.0.0
 flask-socketio==5.3.6
 Flask-SQLAlchemy==3.1.1
 SQLAlchemy==2.0.23
 
-# Database
-psycopg2-binary  # For PostgreSQL
+# Production server
+gunicorn==21.2.0
+eventlet==0.33.3
 
-# Security & Authentication
-PyJWT==2.8.0
-cryptography==41.0.7
-python-dotenv==1.0.0
+# Database (use psycopg for Python 3.13)
+psycopg2-binary==2.9.9
+
+# Telegram bot
+python-telegram-bot==20.7
 
 # Utilities
+python-dotenv==1.0.0
+PyJWT==2.8.0
 requests==2.31.0
+greenlet==3.0.3  # Required for eventlet in Python 3.13
 
+# Development only (not needed in production)
+# - (removed pysqlite3 if using PostgreSQL)
