@@ -821,3 +821,25 @@ if __name__ == '__main__':
         init_database()
         print("Starting development server on port 5000")
         socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+
+# ... [keep all your existing code above this line] ...
+
+# Initialize database
+def init_database():
+    """Initialize database tables and generate cards."""
+    with app.app_context():
+        db.create_all()
+        print("Database tables created")
+        
+        # Generate cards if not exists
+        try:
+            from card_generator import generate_all_cards
+            generate_all_cards()
+        except Exception as e:
+            print(f"Note: Could not generate cards: {e}")
+
+if __name__ == '__main__':
+    # For direct script execution (development)
+    init_database()
+    print("Starting development server on port 5000")
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
