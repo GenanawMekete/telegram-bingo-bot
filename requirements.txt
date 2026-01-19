@@ -1,6 +1,6 @@
-# Production server
-gunicorn==21.2.0
+# WebSocket Server
 eventlet==0.33.3
+gunicorn==21.2.0
 
 # Backend
 Flask==3.0.0
@@ -10,13 +10,16 @@ Flask-SQLAlchemy==3.1.1
 SQLAlchemy==2.0.23
 
 # Database
-psycopg2-binary==2.9.9  # For PostgreSQL on Render
+psycopg2-binary==2.9.9  # For PostgreSQL
 
-# Bot
-python-telegram-bot==20.7
+# Security & Authentication
+PyJWT==2.8.0
+cryptography==41.0.7
 python-dotenv==1.0.0
 
 # Utilities
 requests==2.31.0
-PyJWT==2.8.0
-cryptography==41.0.7
+
+# Bot
+python-telegram-bot==20.7
+python-dotenv==1.0.0
