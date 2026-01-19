@@ -9,16 +9,13 @@ flask-socketio==5.3.6
 python-socketio==5.11.1
 python-engineio==4.8.0
 
-# Production server with gevent
+# Production server
 gunicorn==21.2.0
 gevent==23.9.1
 gevent-websocket==0.10.1
-greenlet==3.0.3
 
-# PostgreSQL - updated for Python 3.13
-psycopg2-binary==2.9.9
-# OR use pg8000 if psycopg2 fails:
-# pg8000==1.30.4
+# PostgreSQL - use pg8000 (pure Python, no C extensions)
+pg8000==1.30.4
 
 # Telegram bot
 python-telegram-bot==20.7
@@ -28,3 +25,4 @@ python-dotenv==1.0.0
 PyJWT==2.8.0
 requests==2.31.0
 Werkzeug==3.0.1
+click==8.1.7
