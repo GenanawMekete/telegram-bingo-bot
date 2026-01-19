@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎯 Telegram Bingo</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Game Header -->
+        <header class="game-header">
+            <div class="user-info">
+                <img src="assets/user-avatar.png" alt="Avatar" class="avatar" id="userAvatar">
+                <div>
+                    <h2 id="userName">Loading...</h2>
+                    <p class="balance" id="userBalance">Balance: $0.00</p>
+                </div>
+            </div>
+            <button class="btn-refresh" id="refreshBtn">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </header>
+
+        <!-- Game Status -->
+        <div class="game-status">
+            <div class="status-card">
+                <i class="fas fa-users"></i>
+                <span>Players: <span id="playerCount">0</span></span>
+            </div>
+            <div class="status-card">
+                <i class="fas fa-trophy"></i>
+                <span>Prize: $<span id="prizePool">0</span></span>
+            </div>
+            <div class="status-card">
+                <i class="fas fa-hashtag"></i>
+                <span>Drawn: <span id="drawnCount">0</span></span>
+            </div>
+            <div class="status-card">
+                <i class="fas fa-door-open"></i>
+                <span>Room: <span id="roomCode">PUBLIC</span></span>
+            </div>
+        </div>
+
+        <!-- Bingo Card Selection -->
+        <div class="section card-selection" id="cardSelection">
+            <h3><i class="fas fa-th-large"></i> Select Your Bingo Card</h3>
+            <div class="cards-grid" id="cardsGrid">
+                <!-- Cards will be loaded here -->
+            </div>
+            <div class="pagination">
+                <button class="btn-prev" id="prevPage"><i class="fas fa-chevron-left"></i></button>
+                <span class="page-info">Page <span id="currentPage">1</span> of <span id="totalPages">1</span></span>
+                <button class="btn-next" id="nextPage"><i class="fas fa-chevron-right"></i></button>
+            </div>
+        </div>
+
+        <!-- Bingo Card Display -->
+        <div class="section bingo-card-section" id="bingoCardSection" style="display: none;">
+            <h3><i class="fas fa-table"></i> Your Bingo Card <span class="card-number" id="selectedCardNumber">#1</span></h3>
+            <div class="bingo-card">
+                <div class="bingo-header">
+                    <div class="bingo-letter">B</div>
+                    <div class="bingo-letter">I</div>
+                    <div class="bingo-letter">N</div>
+                    <div class="bingo-letter">G</div>
+                    <div class="bingo-letter">O</div>
+                </div>
+                <div class="bingo-grid" id="bingoGrid">
+                    <!-- Card will be populated here -->
+                </div>
+            </div>
+            
+            <div class="card-actions">
+                <button class="btn-action" id="markNumberBtn">
+                    <i class="fas fa-check-circle"></i> Mark Number
+                </button>
+                <button class="btn-action btn-claim" id="claimBingoBtn">
+                    <i class="fas fa-trophy"></i> Claim BINGO!
+                </button>
+            </div>
+        </div>
+
+        <!-- Drawn Numbers -->
+        <div class="section drawn-numbers">
+            <h3><i class="fas fa-list-ol"></i> Drawn Numbers</h3>
+            <div class="numbers-grid" id="drawnNumbers">
+                <!-- Drawn numbers will appear here -->
+            </div>
+        </div>
+
+        <!-- Chat / Game Log -->
+        <div class="section game-log">
+            <h3><i class="fas fa-comments"></i> Game Log</h3>
+            <div class="log-messages" id="gameLog">
+                <div class="log-entry system">
+                    <i class="fas fa-info-circle"></i> Welcome to Telegram Bingo!
+                </div>
+            </div>
+            <div class="log-input">
+                <input type="text" id="chatInput" placeholder="Type a message...">
+                <button class="btn-send" id="sendChatBtn">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Game Controls -->
+        <div class="game-controls">
+            <button class="btn-control" id="leaveGameBtn">
+                <i class="fas fa-sign-out-alt"></i> Leave Game
+            </button>
+            <button class="btn-control btn-primary" id="startGameBtn">
+                <i class="fas fa-play"></i> Start Game
+            </button>
+            <button class="btn-control" id="inviteFriendsBtn">
+                <i class="fas fa-user-plus"></i> Invite
+            </button>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal" id="winnerModal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🎉 BINGO! 🎉</h2>
+                <button class="close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="winner-animation">
+                    <i class="fas fa-trophy"></i>
+                </div>
+                <h3>Congratulations!</h3>
+                <p>You've won the game!</p>
+                <div class="prize-amount">
+                    Prize: $<span id="prizeAmount">0</span>
+                </div>
+                <button class="btn-modal" id="collectPrizeBtn">
+                    Collect Prize
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
