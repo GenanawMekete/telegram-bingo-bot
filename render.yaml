@@ -1,38 +1,53 @@
 services:
-  # Telegram Bot Service
-  - type: web
-    name: telegram-bingo-bot
-    env: python
-    plan: free
-    buildCommand: |
-      pip install -r requirements.txt
-      python database/init_db.py
-    startCommand: python bot/bot.py
-    envVars:
-      - key: BOT_TOKEN
-        sync: false
-      - key: DATABASE_URL
-        value: sqlite:///bingo.db
-      - key: WEBAPP_URL
-        value: https://your-webapp.vercel.app
-      - key: BACKEND_URL
-        value: https://your-backend.vercel.app
-      - key: SECRET_KEY
-        generateValue: true
-  
-  # Backend API Service (if not using Vercel)
+  # Backend API Service
   - type: web
     name: bingo-backend
     env: python
     plan: free
+    region: oregon  # or singapore, frankfurt, etc.
     buildCommand: |
+      pip install --upgrade pip
       pip install -r requirements.txt
-      python database/init_db.py
-    startCommand: |
-      cd backend && python app.py
+    startCommand: gunicorn run:app --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT --timeout 120
+    healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
       - key: DATABASE_URL
-        value: sqlite:///../bingo.db
+        value: postgresql://bingo_user:password@localhost/bingo_db  # Will be replaced by Render
+      - key: RENDER
+        value: true
       - key: SECRET_KEY
         generateValue: true
-    healthCheckPath: /api/health
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: WEBAPP_URL
+        value: https://your-bingo-game.netlify.app  # Your Netlify URL
+      - key: CARD_PRICE
+        value: "5.00"
+
+  # Telegram Bot Service
+  - type: web
+    name: bingo-bot
+    env: python
+    plan: free
+    region: oregon
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: python bot/bot.py
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false  # You'll set this in Render dashboard
+      - key: DATABASE_URL
+        sync: false  # Same as backend
+      - key: WEBAPP_URL
+        value: https://your-bingo-game.netlify.app
+      - key: BACKEND_URL
+        sync: false  # Will be bingo-backend.onrender.com
+
+databases:
+  - name: bingo-db
+    plan: free
+    databaseName: bingo_db
+    user: bingo_user
