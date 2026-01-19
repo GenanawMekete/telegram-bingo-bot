@@ -1,51 +1,28 @@
 #!/usr/bin/env python3
 """
-Database setup script for Render.
-Run this manually after deployment.
+Database setup for Render.
 """
 import os
 import sys
 
-# Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-print("Setting up database for production...")
-print(f"Python: {sys.version}")
-print(f"CWD: {os.getcwd()}")
-
-# Initialize gevent
-from gevent import monkey
-monkey.patch_all()
+print("🛠️ Setting up database...")
 
 from backend.app import app, db
 from backend.card_generator import generate_all_cards
-from backend.models import BingoCard
 
 with app.app_context():
     try:
-        # Create all tables
-        print("Creating database tables...")
+        print("🗄️ Creating tables...")
         db.create_all()
-        print("✅ Tables created successfully!")
+        print("✅ Tables created")
         
-        # Generate cards
-        print("Checking for existing cards...")
-        card_count = BingoCard.query.count()
+        print("🃏 Generating cards...")
+        generate_all_cards()
+        print("✅ Cards generated")
         
-        if card_count == 0:
-            print("Generating 400 bingo cards...")
-            generate_all_cards()
-            card_count = BingoCard.query.count()
-            print(f"✅ Generated {card_count} cards!")
-        else:
-            print(f"✅ Database already has {card_count} cards.")
-        
-        # Verify
-        print("\n✅ Database setup complete!")
-        print(f"Total cards: {BingoCard.query.count()}")
-        
+        print("🎉 Database setup complete!")
     except Exception as e:
-        print(f"❌ Error during database setup: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Error: {e}")
         sys.exit(1)
