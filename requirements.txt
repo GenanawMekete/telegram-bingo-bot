@@ -6,7 +6,7 @@ SQLAlchemy==2.0.23
 gunicorn==21.2.0
 gevent==23.9.1
 gevent-websocket==0.10.1
-psycopg2-binary==2.9.9
+psycopg2-binary
 python-telegram-bot==20.7
 python-dotenv==1.0.0
 PyJWT==2.8.0
