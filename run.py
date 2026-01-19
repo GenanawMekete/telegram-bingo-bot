@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Production entry point for Render deployment with gevent.
+Production entry point for Render deployment.
 """
 import os
 import sys
@@ -8,49 +8,48 @@ import sys
 # Add the current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Gevent monkey patch (important!)
+# Gevent monkey patch - MUST BE FIRST
 from gevent import monkey
 monkey.patch_all()
 
-# Import from backend
-from backend.app import app, socketio
+# Import the Flask app
+from backend.app import app, socketio, init_database
 
-def init_production_database():
-    """Initialize database for production."""
-    from backend.app import db
-    from backend.card_generator import generate_all_cards
-    from backend.models import BingoCard
+def start_server():
+    """Start the production server."""
+    print("Starting server...")
+    print(f"Python version: {sys.version}")
+    print(f"Working directory: {os.getcwd()}")
+    print(f"Environment: {'production' if os.environ.get('RENDER') else 'development'}")
     
-    with app.app_context():
-        # Create all tables
-        db.create_all()
-        
-        # Generate cards if none exist
-        if BingoCard.query.count() == 0:
-            print("Generating 400 bingo cards for production...")
-            generate_all_cards()
-            print(f"Generated {BingoCard.query.count()} cards.")
-        else:
-            print(f"Database already has {BingoCard.query.count()} cards.")
-
-if __name__ == "__main__":
-    # Check if running on Render
+    # Initialize database
+    print("Initializing database...")
+    init_database()
+    
     if os.environ.get('RENDER'):
-        print("Starting production server with gevent...")
-        init_production_database()
-        
-        # Get port from environment
+        # Production mode
         port = int(os.environ.get('PORT', 10000))
+        print(f"Starting production server on port {port}")
         
-        # Run with gevent production server
-        from gevent.pywsgi import WSGIServer
-        from geventwebsocket.handler import WebSocketHandler
-        
-        http_server = WSGIServer(('0.0.0.0', port), app, handler_class=WebSocketHandler)
-        print(f"Server running on port {port}")
-        http_server.serve_forever()
+        socketio.run(
+            app,
+            host='0.0.0.0',
+            port=port,
+            debug=False,
+            allow_unsafe_werkzeug=True,
+            use_reloader=False,
+            log_output=True
+        )
     else:
         # Development mode
-        print("Starting development server...")
-        init_production_database()
-        socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+        print("Starting development server on port 5000")
+        socketio.run(
+            app,
+            host='0.0.0.0',
+            port=5000,
+            debug=True,
+            allow_unsafe_werkzeug=True
+        )
+
+if __name__ == '__main__':
+    start_server()
