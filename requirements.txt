@@ -1,22 +1,15 @@
-# Core dependencies
 Flask==3.0.0
 Flask-CORS==4.0.0
 flask-socketio==5.3.6
 Flask-SQLAlchemy==3.1.1
 SQLAlchemy==2.0.23
-
-# Production server with gevent
 gunicorn==21.2.0
 gevent==23.9.1
 gevent-websocket==0.10.1
-
-# Database
 psycopg2-binary==2.9.9
-
-# Telegram bot
 python-telegram-bot==20.7
-
-# Utilities
 python-dotenv==1.0.0
 PyJWT==2.8.0
 requests==2.31.0
+python-engineio==4.7.0
+python-socketio==5.11.1
