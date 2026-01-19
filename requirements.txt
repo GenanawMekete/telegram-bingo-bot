@@ -20,8 +20,5 @@ python-dotenv==1.0.0
 # Utilities
 requests==2.31.0
 
-# Bot
-python-telegram-bot==20.7
-python-dotenv==1.0.0
 
-psycopg2-binary
+psycopg2-binary==2.9.9
