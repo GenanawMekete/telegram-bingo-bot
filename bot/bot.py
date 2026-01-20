@@ -12,7 +12,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-BACKEND_URL = os.environ.get('BACKEND_URL', 'https://bingo-backend.onrender.com')
+BACKEND_URL = os.environ.get('BACKEND_URL', 'https://telegram-bingo-bot-r9lg.onrender.com')
 
 async def start(update: Update, context: CallbackContext):
     """Handle /start command."""
@@ -31,7 +31,7 @@ async def start(update: Update, context: CallbackContext):
             token = data['token']
             
             # Create WebApp button
-            webapp_url = f"https://your-bingo.netlify.app?telegram_id={user.id}&auth={token}"
+            webapp_url = f"https://your-bingo-game.netlify.app?telegram_id={user.id}&auth={token}"
             
             keyboard = [[InlineKeyboardButton(
                 "🎮 Play Bingo",
