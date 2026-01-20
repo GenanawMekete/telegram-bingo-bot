@@ -19,7 +19,7 @@ services:
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: WEBAPP_URL
-        value: https://your-bingo.netlify.app
+        value: https://your-bingo-game.netlify.app
 
   - type: web
     name: bingo-bot
@@ -36,7 +36,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: WEBAPP_URL
-        value: https://your-bingo.netlify.app
+        value: https://your-bingo-game.netlify.app
       - key: BACKEND_URL
         sync: false
 
