@@ -11,11 +11,15 @@ logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 BACKEND_URL = os.environ.get("BACKEND_URL", "https://telegram-bingo-bot-r9lg.onrender.com")
-WEBHOOK_URL = f"{BACKEND_URL}/telegram"
+
+# Your Render public URL (IMPORTANT: change to your real Render URL)
+RENDER_URL = "https://telegram-bingo-bot-r9lg.onrender.com"
+WEBHOOK_PATH = "/telegram"
+WEBHOOK_URL = f"{RENDER_URL}{WEBHOOK_PATH}"
 
 app = FastAPI()
 
-# Telegram application
+# Telegram Application
 application = Application.builder().token(BOT_TOKEN).build()
 
 
@@ -35,7 +39,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data = response.json()
             token = data["token"]
 
-            webapp_url = f"https://your-bingo-game.netlify.app?telegram_id={user.id}&auth={token}"
+            webapp_url = f"https://your-bingo.netlify.app?telegram_id={user.id}&auth={token}"
 
             keyboard = [[InlineKeyboardButton(
                 "🎮 Play Bingo",
@@ -77,7 +81,7 @@ application.add_handler(CommandHandler("balance", balance))
 
 # ---------------- WEBHOOK ENDPOINT ---------------- #
 
-@app.post("/telegram")
+@app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
     data = await request.json()
     update = Update.de_json(data, application.bot)
@@ -89,6 +93,6 @@ async def telegram_webhook(request: Request):
 
 @app.on_event("startup")
 async def startup():
-    # Set webhook automatically when app starts
+    # Set webhook automatically on start
     await application.bot.set_webhook(WEBHOOK_URL)
     logger.info(f"✅ Webhook set to: {WEBHOOK_URL}")
